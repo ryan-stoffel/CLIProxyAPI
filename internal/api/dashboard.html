@@ -18,6 +18,7 @@
     --out: #ff5f57;
   }
   * { box-sizing: border-box; margin: 0; }
+  [hidden] { display: none !important; }
   html { background: var(--bg); }
   body {
     min-height: 100vh;
@@ -54,7 +55,7 @@
   .hero b small { font-size: 0.4em; letter-spacing: -0.02em; color: var(--dim); }
   .hero p { color: var(--dim); margin-top: 10px; }
 
-  .win { display: grid; grid-template-columns: 7.5em 1fr 3.2em; align-items: center; gap: 4px 16px; padding: 10px 0; }
+  .win { display: grid; grid-template-columns: 116px 1fr 48px; align-items: center; gap: 4px 16px; padding: 10px 0; }
   .win .label { color: var(--dim); }
   .win .pct { text-align: right; }
   .win .reset { grid-column: 2 / 4; color: var(--faint); font-size: 13px; }
@@ -68,7 +69,7 @@
   .account header { margin: 0 0 6px; max-width: none; }
   .account header strong { font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .account header span { color: var(--faint); font-size: 13px; flex: none; }
-  .account .win { grid-template-columns: 7.5em 1fr 3.2em; padding: 5px 0; font-size: 13px; }
+  .account .win { padding: 5px 0; font-size: 13px; }
   .account .bar { height: 2px; }
   .account .reset { display: none; }
   .note { color: var(--faint); font-size: 13px; }
@@ -184,7 +185,7 @@ const PLAN_NAMES = { plus: "Plus", pro: "Pro", team: "Team", business: "Business
 
 async function readAccount(account, provider) {
   const base = { email: account.email || account.label || account.name, plan: "", windows: [], error: "", paused: "" };
-  if (account.unavailable && account.next_retry_after) base.paused = `Paused until ${formatReset(Date.parse(account.next_retry_after))}`;
+  if (account.unavailable && account.next_retry_after) base.paused = `Paused, resumes ${formatReset(Date.parse(account.next_retry_after))}`;
   try {
     const usage = await providerGet(account, provider.usageUrl);
     if (provider.id === "claude") return { ...base, windows: claudeWindows(usage) };
