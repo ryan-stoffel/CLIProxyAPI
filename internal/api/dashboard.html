@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="color-scheme" content="dark">
+<title>Account pool</title>
+<style>
+  :root {
+    --bg: #000;
+    --text: #f5f5f7;
+    --dim: rgba(245, 245, 247, 0.56);
+    --faint: rgba(245, 245, 247, 0.32);
+    --line: #1d1d1f;
+    --track: #161617;
+    --low: #ffb340;
+    --out: #ff5f57;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html { background: var(--bg); }
+  body {
+    min-height: 100vh;
+    padding: max(28px, env(safe-area-inset-top)) clamp(20px, 5vw, 64px) 48px;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input { font: inherit; color: inherit; }
+  button {
+    background: none; border: 1px solid var(--line); border-radius: 999px;
+    padding: 6px 14px; cursor: pointer; color: var(--dim);
+  }
+  button:hover { color: var(--text); border-color: #333; }
+  :focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+  a { color: var(--text); }
+
+  header { display: flex; align-items: center; justify-content: space-between; gap: 16px; max-width: 1200px; margin: 0 auto 56px; }
+  header h1 { font-size: 15px; font-weight: 500; }
+  .status { display: flex; align-items: center; gap: 14px; color: var(--faint); font-size: 13px; }
+
+  main { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 72px clamp(40px, 7vw, 112px); }
+
+  .provider h2 { font-size: 15px; font-weight: 500; display: flex; justify-content: space-between; }
+  .provider h2 span { color: var(--faint); font-weight: 400; }
+  .hero { margin: 18px 0 36px; }
+  .hero b {
+    display: block; font-weight: 200; letter-spacing: -0.045em; line-height: 0.9;
+    font-size: clamp(88px, 13vw, 148px);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+  }
+  .hero b small { font-size: 0.4em; letter-spacing: -0.02em; color: var(--dim); }
+  .hero p { color: var(--dim); margin-top: 10px; }
+
+  .win { display: grid; grid-template-columns: 7.5em 1fr 3.2em; align-items: center; gap: 4px 16px; padding: 10px 0; }
+  .win .label { color: var(--dim); }
+  .win .pct { text-align: right; }
+  .win .reset { grid-column: 2 / 4; color: var(--faint); font-size: 13px; }
+  .bar { position: relative; height: 4px; background: var(--track); border-radius: 2px; }
+  .bar i { position: absolute; inset: 0 auto 0 0; border-radius: 2px; background: var(--text); transition: width 0.6s cubic-bezier(.2, .8, .2, 1); }
+  /* Pace tick: where "left" would sit if usage were spread evenly over the window. */
+  .bar u { position: absolute; top: -4px; bottom: -4px; width: 1px; background: var(--faint); }
+
+  .accounts { margin-top: 36px; border-top: 1px solid var(--line); }
+  .account { padding: 18px 0; border-bottom: 1px solid var(--line); }
+  .account header { margin: 0 0 6px; max-width: none; }
+  .account header strong { font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .account header span { color: var(--faint); font-size: 13px; flex: none; }
+  .account .win { grid-template-columns: 7.5em 1fr 3.2em; padding: 5px 0; font-size: 13px; }
+  .account .bar { height: 2px; }
+  .account .reset { display: none; }
+  .note { color: var(--faint); font-size: 13px; }
+
+  .low { color: var(--low); } .low.bar i, .bar.low i { background: var(--low); }
+  .out { color: var(--out); } .bar.out i { background: var(--out); }
+
+  #unlock { max-width: 360px; margin: 18vh auto 0; display: grid; gap: 14px; }
+  #unlock h1 { font-size: 15px; font-weight: 500; }
+  #unlock p { color: var(--dim); font-size: 13px; }
+  #unlock input { background: none; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  #unlock button { justify-self: start; color: var(--text); }
+  #unlock .error { color: var(--out); }
+
+  @media (prefers-reduced-motion: reduce) { .bar i { transition: none; } }
+</style>
+</head>
+<body>
+<form id="unlock" hidden>
+  <h1>Account pool</h1>
+  <p>Enter the hub's management key. It stays in this browser.</p>
+  <input id="key" type="password" autocomplete="current-password" placeholder="Management key" aria-label="Management key" required>
+  <p class="error" id="unlock-error" hidden></p>
+  <button type="submit">Unlock</button>
+</form>
+
+<div id="app" hidden>
+  <header>
+    <h1>Account pool</h1>
+    <div class="status"><span id="updated">Loading</span><button id="refresh" type="button">Refresh</button></div>
+  </header>
+  <main id="providers"></main>
+</div>
+
+<script>
+const KEY_STORAGE = "cliproxy.managementKey";
+const REFRESH_MS = 120_000;
+const PROVIDERS = [
+  { id: "claude", name: "Claude", usageUrl: "https://api.anthropic.com/api/oauth/usage" },
+  { id: "codex", name: "Codex", usageUrl: "https://chatgpt.com/backend-api/wham/usage" },
+];
+
+let key = localStorage.getItem(KEY_STORAGE);
+let lastLoad = 0;
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const clamp = (n) => Math.max(0, Math.min(100, n));
+const level = (left) => (left <= 5 ? "out" : left <= 20 ? "low" : "");
+
+class Unauthorized extends Error {}
+
+// Calls the v8 management API; GET without a body, POST with one.
+async function management(path, body) {
+  const res = await fetch(`/v8/management/${path}`, {
+    method: body ? "POST" : "GET",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: body && JSON.stringify(body),
+  });
+  if (res.status === 401 || res.status === 403) throw new Unauthorized(`HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`Hub answered HTTP ${res.status}`);
+  return res.json();
+}
+
+// Asks the hub to call a provider endpoint with the account's own OAuth token.
+async function providerGet(account, url) {
+  const header = account.provider === "codex"
+    ? {
+        Authorization: "Bearer $TOKEN$",
+        "OpenAI-Beta": "codex-1",
+        Originator: "Codex Desktop",
+        ...(account.id_token?.chatgpt_account_id ? { "Chatgpt-Account-Id": account.id_token.chatgpt_account_id } : {}),
+      }
+    : {
+        Authorization: "Bearer $TOKEN$",
+        "anthropic-beta": "oauth-2025-04-20",
+        // The OAuth usage endpoint can return 429 without a Claude Code user agent.
+        "User-Agent": "claude-code/2.1.273",
+      };
+  const res = await management("requests/api-call", { auth_index: account.auth_index, method: "GET", url, header });
+  if (res.status_code < 200 || res.status_code >= 300) throw new Error(`Provider answered HTTP ${res.status_code}`);
+  return JSON.parse(res.body);
+}
+
+// window: { label, left (0-100), resetsAt (ms or null), seconds (window length or null) }
+const makeWindow = (label, usedPercent, resetsAt, seconds) => ({ label, left: clamp(100 - usedPercent), resetsAt, seconds });
+
+function windowLabel(seconds) {
+  if (seconds === 18_000) return "5 hour";
+  if (seconds === 604_800) return "Weekly";
+  return seconds >= 86_400 ? `${Math.round(seconds / 86_400)} day` : `${Math.round(seconds / 3600)} hour`;
+}
+
+function claudeWindows(u) {
+  const out = [];
+  if (u.five_hour) out.push(makeWindow("5 hour", u.five_hour.utilization, Date.parse(u.five_hour.resets_at) || null, 18_000));
+  if (u.seven_day) out.push(makeWindow("Weekly", u.seven_day.utilization, Date.parse(u.seven_day.resets_at) || null, 604_800));
+  for (const l of u.limits ?? []) {
+    const model = l.scope?.model?.display_name;
+    if (l.kind === "weekly_scoped" && model && typeof l.percent === "number") {
+      out.push(makeWindow(`${model} weekly`, l.percent, Date.parse(l.resets_at) || null, 604_800));
+    }
+  }
+  return out;
+}
+
+function codexWindows(u) {
+  return [u.rate_limit?.primary_window, u.rate_limit?.secondary_window].filter(Boolean).map((w) =>
+    makeWindow(windowLabel(w.limit_window_seconds), w.used_percent, w.reset_at ? w.reset_at * 1000 : null, w.limit_window_seconds ?? null));
+}
+
+const PLAN_NAMES = { plus: "Plus", pro: "Pro", team: "Team", business: "Business", enterprise: "Enterprise", free: "Free" };
+
+async function readAccount(account, provider) {
+  const base = { email: account.email || account.label || account.name, plan: "", windows: [], error: "", paused: "" };
+  if (account.unavailable && account.next_retry_after) base.paused = `Paused until ${formatReset(Date.parse(account.next_retry_after))}`;
+  try {
+    const usage = await providerGet(account, provider.usageUrl);
+    if (provider.id === "claude") return { ...base, windows: claudeWindows(usage) };
+    const plan = usage.plan_type ?? account.id_token?.plan_type ?? account.id_token?.chatgpt_plan_type ?? "";
+    return { ...base, plan: PLAN_NAMES[plan] ?? plan, windows: codexWindows(usage) };
+  } catch (err) {
+    if (err instanceof Unauthorized) throw err;
+    return { ...base, error: `Could not read usage. ${err.message}.` };
+  }
+}
+
+// ponytail: pooled "left" is the plain mean across accounts, which assumes every account has the same plan size.
+function pool(accounts) {
+  const byLabel = new Map();
+  for (const w of accounts.flatMap((a) => a.windows)) {
+    if (!byLabel.has(w.label)) byLabel.set(w.label, []);
+    byLabel.get(w.label).push(w);
+  }
+  return [...byLabel].map(([label, ws]) => ({
+    label,
+    left: ws.reduce((sum, w) => sum + w.left, 0) / ws.length,
+    // The soonest reset is the one that matters for spending.
+    resetsAt: Math.min(...ws.map((w) => w.resetsAt ?? Infinity)),
+    seconds: ws[0].seconds,
+    count: ws.length,
+  }));
+}
+
+function formatReset(ms) {
+  if (!Number.isFinite(ms)) return "";
+  const mins = Math.round((ms - Date.now()) / 60_000);
+  if (mins <= 0) return "now";
+  if (mins < 60) return `in ${mins}m`;
+  if (mins < 24 * 60) return `in ${Math.floor(mins / 60)}h ${mins % 60}m`;
+  return new Date(ms).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
+}
+
+function paceLeft(w) {
+  if (!Number.isFinite(w.resetsAt) || !w.seconds) return null;
+  return clamp(((w.resetsAt - Date.now()) / (w.seconds * 1000)) * 100);
+}
+
+function windowRow(w) {
+  const pace = paceLeft(w);
+  const reset = formatReset(w.resetsAt);
+  return `<div class="win">
+    <span class="label">${esc(w.label)}</span>
+    <span class="bar ${level(w.left)}" role="meter" aria-label="${esc(w.label)} left" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(w.left)}">
+      <i style="width:${w.left}%"></i>${pace === null ? "" : `<u style="left:${pace}%" title="Even pace"></u>`}
+    </span>
+    <span class="pct ${level(w.left)}">${Math.round(w.left)}%</span>
+    ${reset ? `<span class="reset">Resets ${esc(reset)}</span>` : ""}
+  </div>`;
+}
+
+function providerSection(provider, accounts) {
+  const pooled = pool(accounts);
+  const hero = pooled.find((w) => w.label === "Weekly") ?? pooled[0];
+  const count = `${accounts.length} account${accounts.length === 1 ? "" : "s"}`;
+  const body = accounts.length === 0
+    ? `<p class="note" style="margin-top:18px">No ${provider.name} accounts yet. Sign one in from the <a href="/management.html">management panel</a>.</p>`
+    : `<div class="hero ${hero ? level(hero.left) : ""}">
+        <b>${hero ? Math.round(hero.left) : "&ndash;"}<small>%</small></b>
+        <p>${hero ? `${hero.label === "Weekly" ? "Left this week" : `${esc(hero.label)} left`}${formatReset(hero.resetsAt) ? `, resets ${esc(formatReset(hero.resetsAt))}` : ""}` : "No usage data"}</p>
+      </div>
+      ${pooled.map(windowRow).join("")}
+      <div class="accounts">
+        ${accounts.map((a) => `<div class="account">
+          <header><strong title="${esc(a.email)}">${esc(a.email)}</strong><span>${esc(a.plan)}</span></header>
+          ${a.paused ? `<p class="note low">${esc(a.paused)}</p>` : ""}
+          ${a.error ? `<p class="note out">${esc(a.error)}</p>` : a.windows.map(windowRow).join("")}
+        </div>`).join("")}
+      </div>`;
+  return `<section class="provider" aria-label="${provider.name}"><h2>${provider.name}<span>${count}</span></h2>${body}</section>`;
+}
+
+async function load() {
+  $("updated").textContent = "Refreshing";
+  try {
+    const { files = [] } = await management("credentials");
+    const sections = await Promise.all(PROVIDERS.map(async (provider) => {
+      const mine = files.filter((f) => f.provider === provider.id && !f.disabled);
+      return providerSection(provider, await Promise.all(mine.map((f) => readAccount(f, provider))));
+    }));
+    $("providers").innerHTML = sections.join("");
+    lastLoad = Date.now();
+    $("updated").textContent = `Updated ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+  } catch (err) {
+    if (err instanceof Unauthorized) return lock("The hub rejected that key.");
+    $("updated").textContent = err.message;
+  }
+}
+
+function lock(message) {
+  key = null;
+  localStorage.removeItem(KEY_STORAGE);
+  $("app").hidden = true;
+  $("unlock").hidden = false;
+  $("unlock-error").hidden = !message;
+  $("unlock-error").textContent = message ?? "";
+  $("key").focus();
+}
+
+function open() {
+  $("unlock").hidden = true;
+  $("app").hidden = false;
+  load();
+}
+
+$("unlock").addEventListener("submit", (e) => {
+  e.preventDefault();
+  key = $("key").value.trim();
+  localStorage.setItem(KEY_STORAGE, key);
+  open();
+});
+$("refresh").addEventListener("click", load);
+setInterval(() => { if (key && !document.hidden) load(); }, REFRESH_MS);
+document.addEventListener("visibilitychange", () => {
+  if (key && !document.hidden && Date.now() - lastLoad > REFRESH_MS / 2) load();
+});
+
+key ? open() : lock();
+</script>
+</body>
+</html>
